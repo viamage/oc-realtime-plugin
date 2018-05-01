@@ -1,0 +1,5 @@
+fields:
+    websockets_server_ip:
+        label: Websockets Server IP
+    websockets_server_port:
+        label: Websockets Server Port
