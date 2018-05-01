@@ -13,6 +13,7 @@ use October\Rain\Exception\ApplicationException;
 use Ratchet\ConnectionInterface;
 use Ratchet\Wamp\Topic;
 use Ratchet\Wamp\WampServerInterface;
+use Viamage\RealTime\Models\Settings;
 use Viamage\RealTime\ValueObjects\UserSessionData;
 
 /**
@@ -21,24 +22,35 @@ use Viamage\RealTime\ValueObjects\UserSessionData;
  */
 class PusherBus implements WampServerInterface
 {
+    private $settings;
+
+    public function __construct()
+    {
+        $this->settings = Settings::instance();
+    }
 
     /**
      * @var array
      */
     protected $subscribedTopics = [];
 
+    protected $perSessionSubs = [];
+
     /**
      * When a new connection is opened it will be passed to this method
      * @param  ConnectionInterface $conn The socket/connection that just connected to your application
      * @throws \Exception
      */
-    function onOpen(ConnectionInterface $conn)
+    public function onOpen(ConnectionInterface $conn)
     {
         $cookies = $this->getCookies($conn);
         $userData = $this->decryptSessionUserData($cookies);
         $conn->userId = $userData->userId;
         $conn->userKey = $userData->userKey;
-
+        if ($this->settings->get('require_user') && !$userData->userId && !$userData->userKey) {
+            $conn->send('Not authorized, go to hell');
+            $conn->close();
+        }
         dump('Connection opened by user '.$conn->userId);
     }
 
@@ -47,9 +59,9 @@ class PusherBus implements WampServerInterface
      * @param  ConnectionInterface $conn The socket/connection that is closing/closed
      * @throws \Exception
      */
-    function onClose(ConnectionInterface $conn)
+    public function onClose(ConnectionInterface $conn)
     {
-        dump('Connection closed by user '.$conn->userId);
+        dump('Connection closed for user '.$conn->userId);
     }
 
     /**
@@ -59,7 +71,7 @@ class PusherBus implements WampServerInterface
      * @param  \Exception          $e
      * @throws \Exception
      */
-    function onError(ConnectionInterface $conn, \Exception $e)
+    public function onError(ConnectionInterface $conn, \Exception $e)
     {
         dump('Error!', $e->getMessage());
     }
@@ -71,10 +83,17 @@ class PusherBus implements WampServerInterface
      * @param string|Topic                 $topic  The topic to execute the call against
      * @param array                        $params Call parameters received from the client
      */
-    function onCall(ConnectionInterface $conn, $id, $topic, array $params)
+    public function onCall(ConnectionInterface $conn, $id, $topic, array $params)
     {
         dump('Call by user '.$conn->userId);
         $conn->callError($id, $topic, 'You are not allowed to make calls')->close();
+    }
+
+    public function onMessage(ConnectionInterface $conn, $msg)
+    {
+        dump('Message by user '.$conn->userId . ' '. $msg);
+        $conn->send('Not allowed, mate');
+        $conn->close();
     }
 
     /**
@@ -82,11 +101,25 @@ class PusherBus implements WampServerInterface
      * @param \Ratchet\ConnectionInterface $conn
      * @param string|Topic                 $topic The topic to subscribe to
      */
-    function onSubscribe(ConnectionInterface $conn, $topic)
+    public function onSubscribe(ConnectionInterface $conn, $topic)
     {
+        $wampSessionId = $conn->WAMP->sessionId;
+        if (array_key_exists($wampSessionId, $this->perSessionSubs)) {
+            if($this->perSessionSubs[$wampSessionId] > $this->settings->get('subscriptions_limit', 5)){
+                dump('Max subscriptions reached for user '.$conn->userId);
+                $conn->close();
+                return null;
+            }
+            ++$this->perSessionSubs[$wampSessionId];
+        } else {
+            $this->perSessionSubs[$wampSessionId] = 1;
+        }
+
+
         dump('New subscription by user '.$conn->userId.' for topic '.$topic->getId());
         $this->subscribedTopics[$topic->getId()] = $topic;
-        if(property_exists($conn, 'userKey') && $conn->userKey){
+
+        if (property_exists($conn, 'userKey') && $conn->userKey && strpos($topic->getId(), $conn->userKey) === false) {
             $this->subscribedTopics[$topic->getId().'_'.$conn->userKey] = $topic;
         }
     }
@@ -96,7 +129,7 @@ class PusherBus implements WampServerInterface
      * @param \Ratchet\ConnectionInterface $conn
      * @param string|Topic                 $topic The topic to unsubscribe from
      */
-    function onUnSubscribe(ConnectionInterface $conn, $topic)
+    public function onUnSubscribe(ConnectionInterface $conn, $topic)
     {
         dump('User '.$conn->userId.' unsubscribed from '.$topic->getId());
     }
@@ -109,7 +142,7 @@ class PusherBus implements WampServerInterface
      * @param array                        $exclude  A list of session IDs the message should be excluded from (blacklist)
      * @param array                        $eligible A list of session Ids the message should be send to (whitelist)
      */
-    function onPublish(ConnectionInterface $conn, $topic, $event, array $exclude, array $eligible)
+    public function onPublish(ConnectionInterface $conn, $topic, $event, array $exclude, array $eligible)
     {
         dump('User '.$conn->userId.' tried to publish');
         $conn->close();

@@ -60,16 +60,19 @@ class RunServer extends Command
         // Set up our WebSocket server for clients wanting real-time updates
         $serverUri = $serverIp.':'.$serverPort;
         $webSock = new Server($serverUri, $loop); // Binding to 0.0.0.0 means remotes can connect
-        new IoServer(
+        $wsServer = new WsServer(
+            new WampServer(
+                $bus
+            )
+        );
+        $wsServer->enableKeepAlive($loop, 30);
+        $server = new IoServer(
             new HttpServer(
-                new WsServer(
-                    new WampServer(
-                        $bus
-                    )
-                )
+                $wsServer
             ),
             $webSock
         );
+
         dump('Running at ' . $webSock->getAddress());
         $loop->run();
     }

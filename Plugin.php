@@ -29,7 +29,7 @@ class Plugin extends PluginBase
     public function registerSettings()
     {
         return [
-            'stripsubscriptions' => [
+            'realtime' => [
                 'label'       => 'viamage.realtime::lang.plugin.title',
                 'description' => 'viamage.realtime::lang.plugin.description',
                 'icon'        => 'icon-phone',

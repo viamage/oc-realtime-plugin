@@ -3,3 +3,9 @@ fields:
         label: Websockets Server IP
     websockets_server_port:
         label: Websockets Server Port
+    require_user:
+        label: Require user
+        type: switch
+    subscriptions_limit:
+        label: Subscriptions limit
+        type: number
