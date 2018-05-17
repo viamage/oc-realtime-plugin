@@ -122,7 +122,7 @@ This will push event to user-specific channel (which is currently called after $
 class WebhookController {
   public function onIncomingWebhook($payload){
     $this->updateModels($payload);
-    \Viamage\RealTime\ClassesPusher::push([
+    \Viamage\RealTime\Classes\Pusher::push([
         'topic' => 'SomeTopicUsersAreSubscribedTo'
         'details' => 'Some other thing available under data.details in JS'
         'user_id' => $payload['user_id']  
