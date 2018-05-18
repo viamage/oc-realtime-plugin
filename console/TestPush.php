@@ -9,9 +9,15 @@
 namespace Viamage\RealTime\Console;
 
 use Illuminate\Console\Command;
+use Viamage\RealTime\Classes\Pusher;
+use Viamage\RealTime\Models\Settings;
 use ZMQ;
 use ZMQContext;
 
+/**
+ * Class TestPush
+ * @package Viamage\RealTime\Console
+ */
 class TestPush extends Command
 {
     /**
@@ -22,19 +28,33 @@ class TestPush extends Command
     /**
      * The console command description.
      */
-    protected $description = 'Runs WebSocket Server';
+    protected $description = 'Sends test push';
 
+    /**
+     *
+     * @throws \ZMQSocketException
+     */
     public function handle()
     {
-        $data = [
-            'state'   => 'finished',
-            'topic'   => 'callbacks_$2y$10$BBtVrd6bghgt81XhZclgYuHXtjO2KgtltKG78pCMwr/9NxgLtwme.',
-        ];
-        $context = new ZMQContext();
-        $socket = $context->getSocket(ZMQ::SOCKET_PUSH, 'viamage_realtime');
-        $socket->connect('tcp://localhost:5555');
+        Pusher::push(
+            [
+                'topic'   => 'test_channel',
+                'details' => ['message' => 'OK', 'details' => 'Works!']
+            ]
+        );
+        $this->info('Pushed example payload to test_channel');
+    }
 
-        $socket->send(json_encode($data));
+    /**
+     * @return string
+     */
+    protected function getServerUri(): string
+    {
+        $settings = Settings::instance();
+        $serverIp = $settings->get('websockets_server_ip', '0.0.0.0');
+        $serverPort = $settings->get('websockets_server_port', '6010');
+
+        return $serverIp.':'.$serverPort;
     }
 
 }

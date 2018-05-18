@@ -4,6 +4,8 @@ Websockets broadcasting plugin for OctoberCMS. Powered by [Ratchet](http://socke
 
 This plugin is an alternative for "out-of-box" laravel supported Pusher.io and Sockets.io.
 
+![screen](https://i.viamage.com/jz/screen-2018-05-18-14-36-06.png)
+
 #### Requirements:
 
 - php7.1+
@@ -68,7 +70,7 @@ server {
 
 - Add above config to sites-enabled, and voila, you should have your connection available under `wss://YOUR_DOMAIN:8443`
 
-- Add `vm_autobahn` component to your theme layout. It will inject autobahn.js. Don't forget about including {% scripts %}!
+- Add `vm_autobahn` component to your theme layout. It will inject autobahn.js and viamage_realtime cookie which stores encoded token. Don't forget about including {% scripts %}!
 
 
 #### Usage
@@ -102,8 +104,8 @@ Example:
 class WebhookController {
   public function onIncomingWebhook($payload){
     $this->updateModels($payload);
-    \Viamage\RealTime\ClassesPusher::push([
-        'topic' => 'SomeTopicUsersAreSubscribedTo'
+    \Viamage\RealTime\Classes\Pusher::push([
+        'topic' => 'SomeTopicUsersAreSubscribedTo',
         'details' => 'Some other thing available under data.details in JS'  
     ]);
   }
@@ -114,7 +116,7 @@ class WebhookController {
 
 This plugin can use user->persist_code for per user updates. If you want to push to specific user, pass `user_id` in array passed to Pusher.
 
-This will push event to user-specific channel (which is currently called after $user->persist_code to be hard/impossible to guess)
+This will push event to user-specific channel (which is currently called using token, eg `test_channel_{{ user.realtimeToken.token }}`)
 
 *We support RainLab.User and Keios.ProUser*
 
@@ -130,3 +132,11 @@ class WebhookController {
   }
 }
 ```
+
+#### TODOs
+
+- Calling and messaging from user is not supported right now out of box. You can extend Server class and replace PusherBus class with your own class that supports incoming messages in in buildBus() method.
+
+- We've done limited testing with RainLab.User, as we use ProUser on all our productions. Feel free to let us know if anything is not working as it should. 
+
+- Unit tests would be nice.

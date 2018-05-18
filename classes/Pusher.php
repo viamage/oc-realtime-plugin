@@ -19,14 +19,13 @@ class Pusher
         $context = new ZMQContext();
         $socket = $context->getSocket(ZMQ::SOCKET_PUSH, 'viamage_realtime');
         $socket->connect('tcp://localhost:5555');
-
         $socket->send(json_encode($data));
     }
 
     private static function validateData(array $data): void
     {
         $rules = [
-            'user_id' => 'required',
+            'user_id' => 'number',
             'topic'   => 'required',
         ];
         $v = \Validator::make($data, $rules);

@@ -9,11 +9,14 @@
 namespace Viamage\RealTime\Classes;
 
 use Crypt;
+use October\Rain\Auth\AuthException;
 use October\Rain\Exception\ApplicationException;
 use Ratchet\ConnectionInterface;
 use Ratchet\Wamp\Topic;
 use Ratchet\Wamp\WampServerInterface;
+use Symfony\Component\Console\Output\ConsoleOutput;
 use Viamage\RealTime\Models\Settings;
+use Viamage\RealTime\Models\Token;
 use Viamage\RealTime\ValueObjects\UserSessionData;
 
 /**
@@ -22,11 +25,20 @@ use Viamage\RealTime\ValueObjects\UserSessionData;
  */
 class PusherBus implements WampServerInterface
 {
+    /**
+     * @var
+     */
     private $settings;
 
+    private $consoleOutput;
+
+    /**
+     * PusherBus constructor.
+     */
     public function __construct()
     {
         $this->settings = Settings::instance();
+        $this->consoleOutput = new ConsoleOutput();
     }
 
     /**
@@ -34,6 +46,9 @@ class PusherBus implements WampServerInterface
      */
     protected $subscribedTopics = [];
 
+    /**
+     * @var array
+     */
     protected $perSessionSubs = [];
 
     /**
@@ -45,13 +60,17 @@ class PusherBus implements WampServerInterface
     {
         $cookies = $this->getCookies($conn);
         $userData = $this->decryptSessionUserData($cookies);
-        $conn->userId = $userData->userId;
-        $conn->userKey = $userData->userKey;
         if ($this->settings->get('require_user') && !$userData->userId && !$userData->userKey) {
             $conn->send('Not authorized, go to hell');
             $conn->close();
         }
-        dump('Connection opened by user '.$conn->userId);
+
+        if ($userData->userId && $userData->userKey) {
+            $conn->userId = $userData->userId;
+            $conn->userKey = $userData->userKey;
+        }
+
+        $this->messageToConsole('Connection opened by <user>', $conn);
     }
 
     /**
@@ -61,7 +80,7 @@ class PusherBus implements WampServerInterface
      */
     public function onClose(ConnectionInterface $conn)
     {
-        dump('Connection closed for user '.$conn->userId);
+        $this->messageToConsole('Connection closed for <user>', $conn);
     }
 
     /**
@@ -85,13 +104,19 @@ class PusherBus implements WampServerInterface
      */
     public function onCall(ConnectionInterface $conn, $id, $topic, array $params)
     {
-        dump('Call by user '.$conn->userId);
+        $this->messageToConsole('Call by <user>', $conn);
+
         $conn->callError($id, $topic, 'You are not allowed to make calls')->close();
     }
 
+    /**
+     * @param ConnectionInterface $conn
+     * @param                     $msg
+     */
     public function onMessage(ConnectionInterface $conn, $msg)
     {
-        dump('Message by user '.$conn->userId . ' '. $msg);
+        $this->messageToConsole('Message by <user>', $conn);
+
         $conn->send('Not allowed, mate');
         $conn->close();
     }
@@ -100,26 +125,27 @@ class PusherBus implements WampServerInterface
      * A request to subscribe to a topic has been made
      * @param \Ratchet\ConnectionInterface $conn
      * @param string|Topic                 $topic The topic to subscribe to
+     * @return null
      */
     public function onSubscribe(ConnectionInterface $conn, $topic)
     {
         $wampSessionId = $conn->WAMP->sessionId;
         if (array_key_exists($wampSessionId, $this->perSessionSubs)) {
-            if($this->perSessionSubs[$wampSessionId] > $this->settings->get('subscriptions_limit', 5)){
-                dump('Max subscriptions reached for user '.$conn->userId);
+            if ($this->perSessionSubs[$wampSessionId] > $this->settings->get('subscriptions_limit', 5)) {
+                $this->messageToConsole('Max subscriptions reached for <user>', $conn);
                 $conn->close();
+
                 return null;
             }
             ++$this->perSessionSubs[$wampSessionId];
         } else {
             $this->perSessionSubs[$wampSessionId] = 1;
         }
+        $this->messageToConsole('New subscription by <user> for topic '.$topic->getId(), $conn);
 
-
-        dump('New subscription by user '.$conn->userId.' for topic '.$topic->getId());
         $this->subscribedTopics[$topic->getId()] = $topic;
 
-        if (property_exists($conn, 'userKey') && $conn->userKey && strpos($topic->getId(), $conn->userKey) === false) {
+        if (isset($conn->userKey) && $conn->userKey && strpos($topic->getId(), $conn->userKey) === false) {
             $this->subscribedTopics[$topic->getId().'_'.$conn->userKey] = $topic;
         }
     }
@@ -131,7 +157,7 @@ class PusherBus implements WampServerInterface
      */
     public function onUnSubscribe(ConnectionInterface $conn, $topic)
     {
-        dump('User '.$conn->userId.' unsubscribed from '.$topic->getId());
+        $this->messageToConsole('<user> unsubscribed from topic'.$topic->getId(), $conn);
     }
 
     /**
@@ -144,7 +170,7 @@ class PusherBus implements WampServerInterface
      */
     public function onPublish(ConnectionInterface $conn, $topic, $event, array $exclude, array $eligible)
     {
-        dump('User '.$conn->userId.' tried to publish');
+        $this->messageToConsole('<user> tried to publish'.$topic->getId(), $conn);
         $conn->close();
     }
 
@@ -152,17 +178,17 @@ class PusherBus implements WampServerInterface
      * @param string $entry
      * @return null|void
      */
-    public function onSendUpdate($entry)
+    public function onSendUpdate(string $entry): void
     {
         $entryData = json_decode($entry, true);
         $user = $this->getUser($entryData);
         // If the lookup topic object isn't set there is no one to publish to
-        if ($user && array_key_exists($entryData['topic'].'_'.$user->persist_code, $this->subscribedTopics)) {
-            $topic = $this->subscribedTopics[$entryData['topic'].'_'.$user->persist_code];
+        if ($user && array_key_exists($entryData['topic'].'_'.$user->realtimeToken->token, $this->subscribedTopics)) {
+            $topic = $this->subscribedTopics[$entryData['topic'].'_'.$user->realtimeToken->token];
         } elseif (array_key_exists($entryData['topic'], $this->subscribedTopics)) {
             $topic = $this->subscribedTopics[$entryData['topic']];
         } else {
-            return null;
+            return;
         }
 
         // re-send the data to all the clients subscribed to that category
@@ -174,14 +200,13 @@ class PusherBus implements WampServerInterface
      * @return array
      * @throws ApplicationException
      */
-    private function getCookies(ConnectionInterface $conn)
+    private function getCookies(ConnectionInterface $conn): array
     {
         // Get the cookies
         $cookiesRaw = $conn->httpRequest->getHeader('Cookie');
         if (array_key_exists(0, $cookiesRaw)) {
             $cookies = [];
-            $cookieEntries = explode('; ', $cookiesRaw[0]);
-            foreach ($cookieEntries as $cookieEntry) {
+            foreach (explode('; ', $cookiesRaw[0]) as $cookieEntry) {
                 $array = explode('=', $cookieEntry);
                 $cookies[$array[0]] = $array[1];
             }
@@ -196,16 +221,16 @@ class PusherBus implements WampServerInterface
      * @param array $entryData
      * @return \Keios\ProUser\Models\User|\RainLab\User\Models\User|null
      */
-    private function getUser($entryData)
+    private function getUser(array $entryData)
     {
         if (!array_key_exists('user_id', $entryData)) {
             return null;
         }
         $user = null;
         if (class_exists('Keios\ProUser\Models\User')) {
-            $user = \Keios\ProUser\Models\User::where('id', $entryData['user_id'])->first();
+            $user = \Keios\ProUser\Models\User::where('id', $entryData['user_id'])->with('realtimeToken')->first();
         } elseif (class_exists('RainLab\User\Models\User')) {
-            $user = RainLab\User\Models\User::where('id', $entryData['user_id'])->first();
+            $user = RainLab\User\Models\User::where('id', $entryData['user_id'])->with('realtimeToken')->first();
         }
 
         return $user;
@@ -214,21 +239,33 @@ class PusherBus implements WampServerInterface
     /**
      * @param array $cookies
      * @return UserSessionData
+     * @throws AuthException
      */
-    private function decryptSessionUserData($cookies)
+    private function decryptSessionUserData(array $cookies): UserSessionData
     {
         $result = new UserSessionData();
-        $laravelCookie = urldecode($cookies['user_auth']);
-        $userData = Crypt::decrypt($laravelCookie);
-        if (\is_array($userData)) {
-            if (array_key_exists(0, $userData)) {
-                $result->userId = $userData[0];
-            }
-            if (array_key_exists(1, $userData)) {
-                $result->userKey = $userData[1];
-            }
+        $laravelCookie = urldecode($cookies['viamage_realtime']);
+        $tokenData = Crypt::decrypt($laravelCookie);
+        $token = Token::where('token', $tokenData)->with('user')->first();
+        if ($token) {
+            $result->userId = $token->user_id;
+            $result->userKey = $token->token;
+
+            return $result;
         }
 
-        return $result;
+        throw new AuthException('No valid user found');
+    }
+
+    private function messageToConsole(string $message, ConnectionInterface $conn): void
+    {
+        $userString = 'anonymous';
+        if (isset($conn->userId)) {
+            $userString = 'user '.$conn->userId;
+        }
+
+        $message = str_replace('<user>', $userString, $message);
+        $this->consoleOutput->writeln($message);
+
     }
 }

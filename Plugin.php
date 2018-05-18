@@ -1,11 +1,11 @@
 <?php namespace Viamage\RealTime;
 
-use Backend;
 use System\Classes\PluginBase;
 use Viamage\RealTime\Console\RunServer;
 use Viamage\RealTime\Console\TestPush;
 use Viamage\RealTime\Models\Settings;
 use Viamage\RealTime\Components\AutoBahn;
+use Viamage\RealTime\Models\Token;
 
 /**
  * RealTime Plugin Information File
@@ -17,16 +17,16 @@ class Plugin extends PluginBase
      *
      * @return array
      */
-    public function pluginDetails()
+    public function pluginDetails(): array
     {
         return [
             'name'        => 'RealTime',
-            'description' => 'No description provided yet...',
+            'description' => 'Ratchet Broadcasting for OctoberCMS',
             'author'      => 'Viamage',
-            'icon'        => 'icon-leaf'
+            'icon'        => 'icon-cogs'
         ];
     }
-    public function registerSettings()
+    public function registerSettings(): array
     {
         return [
             'realtime' => [
@@ -35,7 +35,6 @@ class Plugin extends PluginBase
                 'icon'        => 'icon-phone',
                 'order'       => 550,
                 'class'       => Settings::class,
-
                 'category'    => 'viamage.realtime::lang.plugin.title',
                 'permissions' => ['viamage.realtime.settings'],
             ],
@@ -47,18 +46,42 @@ class Plugin extends PluginBase
      *
      * @return void
      */
-    public function register()
+    public function register(): void
     {
         $this->commands(RunServer::class, TestPush::class);
     }
 
     /**
      * Boot method, called right before the request route.
-     *
-     * @return array
      */
-    public function boot()
+    public function boot(): void
     {
+        /** @noinspection ClassConstantCanBeUsedInspection */
+        if(class_exists('RainLab\User\Models\User')){
+            \RainLab\User\Models\User::extend(
+                function ($model) {
+                    $model->hasOne['realtimeToken'] = [Token::class];
+                }
+            );
+            Token::extend(
+                function(Token $model){
+                    $model->belongsTo['user'] = \RainLab\User\Models\User::class;
+                }
+            );
+        }
+        /** @noinspection ClassConstantCanBeUsedInspection */
+        if(class_exists('Keios\ProUser\Models\User')){
+            \Keios\ProUser\Models\User::extend(
+                function ($model) {
+                    $model->hasOne['realtimeToken'] = [Token::class];
+                }
+            );
+            Token::extend(
+                function(Token $model){
+                    $model->belongsTo['user'] = \Keios\ProUser\Models\User::class;
+                }
+            );
+        }
 
     }
 
@@ -67,7 +90,7 @@ class Plugin extends PluginBase
      *
      * @return array
      */
-    public function registerComponents()
+    public function registerComponents(): array
     {
         return [
             AutoBahn::class => 'vm_autobahn',
@@ -79,16 +102,9 @@ class Plugin extends PluginBase
      *
      * @return array
      */
-    public function registerPermissions()
+    public function registerPermissions(): array
     {
-        return []; // Remove this line to activate
-
-        return [
-            'viamage.realtime.some_permission' => [
-                'tab' => 'RealTime',
-                'label' => 'Some permission'
-            ],
-        ];
+        return [];
     }
 
     /**
@@ -96,18 +112,8 @@ class Plugin extends PluginBase
      *
      * @return array
      */
-    public function registerNavigation()
+    public function registerNavigation(): array
     {
-        return []; // Remove this line to activate
-
-        return [
-            'realtime' => [
-                'label'       => 'RealTime',
-                'url'         => Backend::url('viamage/realtime/mycontroller'),
-                'icon'        => 'icon-leaf',
-                'permissions' => ['viamage.realtime.*'],
-                'order'       => 500,
-            ],
-        ];
+        return [];
     }
 }
