@@ -135,7 +135,7 @@ class WebhookController {
 
 #### TODOs
 
-- Calling and messaging from user is not supported right now out of box. You can extend Server class and replace PusherBus class with your own class that supports incoming messages in in buildBus() method.
+- Calling and messaging from user is not supported right now out of box. You can extend RunServer command and replace PusherBus class with your own class that supports incoming messages in in buildBus() method.
 
 - We've done limited testing with RainLab.User, as we use ProUser on all our productions. Feel free to let us know if anything is not working as it should. 
 
